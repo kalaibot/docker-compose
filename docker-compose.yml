@@ -1,0 +1,91 @@
+version: "3.9"
+services:
+  vault-server:
+    container_name: vault-server
+    image: vault:${VAULT_VERSION}
+    restart: always
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8200/ui/vault || exit 1
+      interval: 10s
+      retries: 5
+      start_period: 10s
+      timeout: 10s
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: "http://0.0.0.0:8200"
+      #VAULT_DEV_ROOT_TOKEN_ID: hello -> only for dev mode
+    cap_add:
+      - IPC_LOCK
+    configs:
+      - source: vault_config.json
+        target: /vault/config/vault_config.json
+    command: vault server --config=/vault/config/vault_config.json
+    volumes:
+      - vault:/vault/file
+      - vault:/vault/logs
+      - vault:/vault/data
+    networks:
+      local-network:
+        ipv4_address: 172.21.0.10
+        aliases:
+          - vault-server
+
+  jenkins:
+    container_name: jenkins
+    image: jenkins/jenkins:${JENKINS_VERSION}
+    restart: always
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - "jenkins:/var/jenkins_home"
+    networks:
+      local-network:
+        ipv4_address: 172.21.0.30
+        aliases:
+          - jenkins
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8080 || exit 1"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+      timeout: 10s
+
+  jenkins-agent:
+    container_name: jenkins-agent
+    image: jenkins/inbound-agent:latest
+    init: true
+    restart: always
+    networks:
+      local-network:
+        ipv4_address: 172.21.0.40
+        aliases:
+          - jenkins-agent
+    environment:
+      JENKINS_URL: "http://jenkins:8080"
+      JENKINS_AGENT_NAME: "jenkins-agent"
+      JENKINS_AGENT_WORKDIR: "/home/jenkins/agent"
+      JENKINS_WEB_SOCKET: true
+      JENKINS_SECRET: "1129f1d0c9adfefa188565bb46d51d6bc73631b6f6713d4529d51a3d52009bac"
+    depends_on:
+      - jenkins
+
+
+configs:
+  vault_config.json:
+    file: vault/vault_config.json
+
+  vault_init.sh:
+    file: vault/init.sh
+
+volumes:
+  vault:
+  jenkins:
+
+networks:
+  local-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
